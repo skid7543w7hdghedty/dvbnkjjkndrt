@@ -1,0 +1,405 @@
+-- This is a LocalScript that should be placed in StarterGui or run locally.
+
+local player = game.Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+-- Infinite jump variables
+local isEnabled = false
+local jumpRequestThisFrame = false
+local jumpRequestDebounced = false
+local droppedFrames = 0
+local MAX_DEBOUNCE_FRAMES = 3
+
+-- Infinite jump connections
+UserInputService.JumpRequest:Connect(function()
+    jumpRequestThisFrame = true
+end)
+
+RunService.PostSimulation:Connect(function()
+    if isEnabled then
+        local character = player.Character
+        if character then
+            local humanoid = character:FindFirstChild("Humanoid")
+            if humanoid then
+                if jumpRequestThisFrame and not jumpRequestDebounced then
+                    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                    jumpRequestDebounced = true
+                elseif not jumpRequestThisFrame and jumpRequestDebounced then
+                    droppedFrames += 1
+                    if droppedFrames >= MAX_DEBOUNCE_FRAMES then
+                        jumpRequestDebounced = false
+                        droppedFrames = 0
+                    end
+                end
+            end
+        end
+    end
+    jumpRequestThisFrame = false
+end)
+
+-- Services for Wallhop
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+
+-- Variables for Wallhop Functionality
+local wallhopToggle = false
+local InfiniteJumpEnabled = true -- Debounce for non-button jumps (manual and auto)
+local raycastParams = RaycastParams.new()
+raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+local jumpConnection = nil
+
+-- ============================================================== --
+-- Precise wall detection function (Unchanged)
+-- ============================================================== --
+local function getWallRaycastResult()
+    local character = player.Character
+    if not character then return nil end
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return nil end
+
+    raycastParams.FilterDescendantsInstances = {character}
+    local detectionDistance = 2
+    local closestHit = nil
+    local minDistance = detectionDistance + 1
+    local hrpCF = humanoidRootPart.CFrame
+
+    for i = 0, 7 do
+        local angle = math.rad(i * 45)
+        local direction = (hrpCF * CFrame.Angles(0, angle, 0)).LookVector
+        local ray = Workspace:Raycast(humanoidRootPart.Position, direction * detectionDistance, raycastParams)
+        if ray and ray.Instance and ray.Distance < minDistance then
+            minDistance = ray.Distance
+            closestHit = ray
+        end
+    end
+
+    local blockCastSize = Vector3.new(1.5, 1, 0.5)
+    local blockCastOffset = CFrame.new(0, -1, -0.5)
+    local blockCastOriginCF = hrpCF * blockCastOffset
+    local blockCastDirection = hrpCF.LookVector
+    local blockCastDistance = 1.5
+    local blockResult = Workspace:Blockcast(blockCastOriginCF, blockCastSize, blockCastDirection * blockCastDistance, raycastParams)
+
+    if blockResult and blockResult.Instance and blockResult.Distance < minDistance then
+         minDistance = blockResult.Distance
+         closestHit = blockResult
+    end
+
+    return closestHit
+end
+-- ============================================================== --
+
+-- ======================================================================== --
+-- Reusable Core Wall Jump Execution Function (MODIFIED AS PER REQUEST)
+-- ======================================================================== --
+local function executeWallJump(wallRayResult, jumpType) -- jumpType for debug print ("Manual", "Button", "Auto")
+    -- Skip debounce check ONLY for button-triggered jumps
+    if jumpType ~= "Button" and not InfiniteJumpEnabled then
+        -- print("executeWallJump: Debounce active for non-button jump, type: " .. jumpType) -- Optional debug
+        return
+    end
+
+    local character = player.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    local camera = Workspace.CurrentCamera
+
+    if not (humanoid and rootPart and camera and humanoid:GetState() ~= Enum.HumanoidStateType.Dead and wallRayResult) then
+        -- print("executeWallJump: Invalid state or no wall result.")
+        return
+    end
+
+    -- Only disable debounce for non-button jumps
+    if jumpType ~= "Button" then
+        InfiniteJumpEnabled = false -- Start debounce FOR non-button JUMPS
+    end
+
+    local maxInfluenceAngleRight = math.rad(20)
+    local maxInfluenceAngleLeft  = math.rad(-100)
+
+    local wallNormal = wallRayResult.Normal
+    local baseDirectionAwayFromWall = Vector3.new(wallNormal.X, 0, wallNormal.Z).Unit
+    if baseDirectionAwayFromWall.Magnitude < 0.1 then
+         local dirToHit = (wallRayResult.Position - rootPart.Position) * Vector3.new(1,0,1)
+         baseDirectionAwayFromWall = -dirToHit.Unit
+         if baseDirectionAwayFromWall.Magnitude < 0.1 then
+             baseDirectionAwayFromWall = -rootPart.CFrame.LookVector * Vector3.new(1, 0, 1)
+             if baseDirectionAwayFromWall.Magnitude > 0.1 then baseDirectionAwayFromWall = baseDirectionAwayFromWall.Unit end
+             if baseDirectionAwayFromWall.Magnitude < 0.1 then baseDirectionAwayFromWall = Vector3.new(0,0,1) end
+         end
+    end
+    baseDirectionAwayFromWall = Vector3.new(baseDirectionAwayFromWall.X, 0, baseDirectionAwayFromWall.Z).Unit
+    if baseDirectionAwayFromWall.Magnitude < 0.1 then baseDirectionAwayFromWall = Vector3.new(0,0,1) end
+
+    local cameraLook = camera.CFrame.LookVector
+    local horizontalCameraLook = Vector3.new(cameraLook.X, 0, cameraLook.Z).Unit
+    if horizontalCameraLook.Magnitude < 0.1 then horizontalCameraLook = baseDirectionAwayFromWall end
+
+    local dot = math.clamp(baseDirectionAwayFromWall:Dot(horizontalCameraLook), -1, 1)
+    local angleBetween = math.acos(dot)
+    local cross = baseDirectionAwayFromWall:Cross(horizontalCameraLook)
+    local rotationSign = -math.sign(cross.Y)
+    if rotationSign == 0 then angleBetween = 0 end
+
+    local actualInfluenceAngle
+    if rotationSign == 1 then
+        actualInfluenceAngle = math.min(angleBetween, maxInfluenceAngleRight)
+    elseif rotationSign == -1 then
+        actualInfluenceAngle = math.min(angleBetween, maxInfluenceAngleLeft)
+    else
+        actualInfluenceAngle = 0
+    end
+
+    local adjustmentRotation = CFrame.Angles(0, actualInfluenceAngle * rotationSign, 0)
+    local initialTargetLookDirection = adjustmentRotation * baseDirectionAwayFromWall
+
+    rootPart.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + initialTargetLookDirection)
+    RunService.Heartbeat:Wait()
+
+    local didJump = false
+    if humanoid and humanoid:GetState() ~= Enum.HumanoidStateType.Dead then
+         humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+         didJump = true
+         print("Performed jump away from wall (".. (jumpType or "Unknown") .. ").")
+
+         rootPart.CFrame = rootPart.CFrame * CFrame.Angles(0, -1, 0)
+         task.wait(0.15)
+         rootPart.CFrame = rootPart.CFrame * CFrame.Angles(0, 1, 0)
+         print("Applied cosmetic rotation flick (-1/+1 radians) (".. (jumpType or "Unknown") .. ").")
+    end
+
+    if didJump then
+         local directionTowardsWall = -baseDirectionAwayFromWall
+         task.wait(0.05)
+         rootPart.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + directionTowardsWall)
+         print("Rotated back towards wall after jump (".. (jumpType or "Unknown") .. ").")
+    end
+
+    -- Only re-enable debounce for non-button jumps
+    if jumpType ~= "Button" then
+        task.wait(0.1)
+        InfiniteJumpEnabled = true
+    end
+end
+-- ======================================================================== --
+
+-- Main Wallhop Function (Spacebar) - Uses executeWallJump
+jumpConnection = UserInputService.JumpRequest:Connect(function()
+    if not wallhopToggle then return end -- Only check main toggle
+    -- The check for InfiniteJumpEnabled will happen inside executeWallJump for "Manual" type
+
+    local wallRayResult = getWallRaycastResult()
+    if wallRayResult then
+        executeWallJump(wallRayResult, "Manual")
+    end
+end)
+
+-- Handle character death to turn off toggle
+local function onCharacterAdded(character)
+    local humanoid = character:WaitForChild("Humanoid")
+    humanoid.Died:Connect(function()
+        wallhopToggle = false
+        button4.Text = "Wallhop: OFF"
+    end)
+end
+
+player.CharacterAdded:Connect(onCharacterAdded)
+if player.Character then
+    onCharacterAdded(player.Character)
+end
+
+-- Create the ScreenGui
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "DraggableGui"
+screenGui.ResetOnSpawn = false  -- This ensures the GUI persists after death/respawn
+screenGui.Parent = playerGui
+
+-- Create the draggable Frame
+local frame = Instance.new("Frame")
+frame.Name = "DraggableFrame"
+frame.Size = UDim2.new(0, 200, 0, 230)  -- Initial size adjusted for 4 buttons
+frame.Position = UDim2.new(0.5, -100, 0.5, -125)  -- Center position
+frame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+frame.BorderSizePixel = 0
+frame.Active = true  -- Needed for input events
+frame.Parent = screenGui
+
+-- Title bar
+local titleBar = Instance.new("TextLabel")
+titleBar.Name = "TitleBar"
+titleBar.Size = UDim2.new(1, -30, 0, 30)
+titleBar.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+titleBar.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleBar.Text = "OverDrive H Premium"
+titleBar.Font = Enum.Font.SourceSansBold
+titleBar.TextSize = 20
+titleBar.Parent = frame
+
+-- Minimize button next to title
+local minimizeButton = Instance.new("TextButton")
+minimizeButton.Name = "MinimizeButton"
+minimizeButton.Size = UDim2.new(0, 30, 0, 30)
+minimizeButton.Position = UDim2.new(1, -30, 0, 0)
+minimizeButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+minimizeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+minimizeButton.Text = "—"
+minimizeButton.Font = Enum.Font.SourceSansBold
+minimizeButton.TextSize = 18
+minimizeButton.Parent = frame
+
+-- Add the first button (Infinite Jump)
+local button1 = Instance.new("TextButton")
+button1.Name = "InfiniteJumpButton"
+button1.Size = UDim2.new(1, 0, 0, 50)
+button1.Position = UDim2.new(0, 0, 0, 30)  -- Below the title bar
+button1.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+button1.TextColor3 = Color3.fromRGB(255, 255, 255)
+button1.Text = "Infinite Jump: OFF"
+button1.Font = Enum.Font.SourceSansBold
+button1.TextSize = 18.5
+button1.Parent = frame
+
+-- First button click functionality (Infinite Jump)
+button1.MouseButton1Click:Connect(function()
+    isEnabled = not isEnabled
+    button1.Text = "Infinite Jump: " .. (isEnabled and "ON" or "OFF")
+    button1.BackgroundColor3 = isEnabled and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(0, 0, 0)
+end)
+
+-- Add the second button (Jump Boost)
+local button2 = Instance.new("TextButton")
+button2.Name = "JumpButton"
+button2.Size = UDim2.new(1, 0, 0, 50)
+button2.Position = UDim2.new(0, 0, 0, 80)  -- Below the first button
+button2.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+button2.TextColor3 = Color3.fromRGB(255, 255, 255)
+button2.Text = "Jump Boost"
+button2.Font = Enum.Font.SourceSansBold
+button2.TextSize = 18.5
+button2.Parent = frame
+
+-- Second button click functionality (Jump Boost)
+button2.MouseButton1Click:Connect(function()
+    local character = player.Character
+    if character and character:FindFirstChild("Humanoid") then
+        local humanoid = character.Humanoid
+        humanoid.JumpPower = 155
+        wait(0.7)
+        if character and character:FindFirstChild("Humanoid") then  -- Check again in case of changes
+            humanoid.JumpPower = 50
+        end
+    end
+end)
+
+-- Add the third button (Fake Speed Glitch)
+local button3 = Instance.new("TextButton")
+button3.Name = "SpeedButton"
+button3.Size = UDim2.new(1, 0, 0, 50)
+button3.Position = UDim2.new(0, 0, 0, 130)  -- Below the second button
+button3.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+button3.TextColor3 = Color3.fromRGB(255, 255, 255)
+button3.Text = "Fake Speed Glitch"
+button3.Font = Enum.Font.SourceSansBold
+button3.TextSize = 18.5
+button3.Parent = frame
+
+-- Third button click functionality (Fake Speed Glitch)
+button3.MouseButton1Click:Connect(function()
+    local character = player.Character
+    if character and character:FindFirstChild("Humanoid") then
+        local humanoid = character.Humanoid
+        
+        -- Connect to state changes for persistent effect until death
+        local stateConn = humanoid.StateChanged:Connect(function(oldState, newState)
+            if newState == Enum.HumanoidStateType.Freefall then
+                humanoid.WalkSpeed = 40
+            elseif newState == Enum.HumanoidStateType.Landed then
+                humanoid.WalkSpeed = 16
+            end
+        end)
+        
+        -- Apply immediately if currently in Freefall
+        if humanoid:GetState() == Enum.HumanoidStateType.Freefall then
+            humanoid.WalkSpeed = 40
+        end
+        
+        -- Optional: Disconnect on death (though not necessary as Humanoid is destroyed)
+        humanoid.Died:Connect(function()
+            if stateConn then
+                stateConn:Disconnect()
+            end
+        end)
+    end
+end)
+
+-- Add the fourth button (Wallhop)
+local button4 = Instance.new("TextButton")
+button4.Name = "WallhopButton"
+button4.Size = UDim2.new(1, 0, 0, 50)
+button4.Position = UDim2.new(0, 0, 0, 180)  -- Below the third button
+button4.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+button4.TextColor3 = Color3.fromRGB(255, 255, 255)
+button4.Text = "Wallhop: OFF"
+button4.Font = Enum.Font.SourceSansBold
+button4.TextSize = 18.5
+button4.Parent = frame
+
+-- Fourth button click functionality (Wallhop Toggle)
+button4.MouseButton1Click:Connect(function()
+    wallhopToggle = not wallhopToggle
+    button4.Text = "Wallhop: " .. (wallhopToggle and "ON" or "OFF")
+end)
+
+-- Minimize button functionality
+local isContentVisible = true
+minimizeButton.MouseButton1Click:Connect(function()
+    isContentVisible = not isContentVisible
+    button1.Visible = isContentVisible
+    button2.Visible = isContentVisible
+    button3.Visible = isContentVisible
+    button4.Visible = isContentVisible
+    if isContentVisible then
+        frame.Size = UDim2.new(0, 200, 0, 230)
+        minimizeButton.Text = "—"
+    else
+        frame.Size = UDim2.new(0, 200, 0, 30)
+        minimizeButton.Text = "+"
+    end
+end)
+
+-- Dragging functionality
+local dragging = false
+local dragInput
+local dragStart
+local startPos
+
+frame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = frame.Position
+        
+        local connection
+        connection = input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+                connection:Disconnect()
+            end
+        end)
+    end
+end)
+
+frame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+game:GetService("UserInputService").InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
