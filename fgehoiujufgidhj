@@ -196,12 +196,81 @@ jumpConnection = UserInputService.JumpRequest:Connect(function()
     end
 end)
 
--- Handle character death to turn off toggle
-local function onCharacterAdded(character)
-    local humanoid = character:WaitForChild("Humanoid")
+-- Air Strafe variables
+local airStrafeMultiplier = 1.7 -- Множитель силы стрейфа в воздухе
+local maxAirSpeed = 20 -- Максимальная скорость в воздухе
+local strafeInterval = 1.5 -- Максимальный интервал (в секундах) между нажатиями A и D
+local strafeThreshold = 0.5 -- Порог для обнаружения ввода стрейфа
+local lastStrafeSign = 0 -- Последний знак стрейфа
+local lastStrafeTime = 0 -- Время последнего стрейфа
+local isStrafing = false -- Флаг активного стрейфа
+local isScriptEnabled = false -- Флаг включения/выключения скрипта
+
+local character
+local humanoid
+local rootPart
+
+-- Функция для обработки стрейфа в воздухе
+local function updateAirMovement()
+    if not isScriptEnabled then return end
+    if humanoid:GetState() == Enum.HumanoidStateType.Jumping or humanoid:GetState() == Enum.HumanoidStateType.Freefall then
+        local currentX = humanoid.MoveDirection.X
+        local currentSign = (math.abs(currentX) > strafeThreshold) and math.sign(currentX) or 0
+        
+        if currentSign ~= 0 and currentSign ~= lastStrafeSign then
+            local currentTime = tick()
+            if lastStrafeSign ~= 0 and (currentTime - lastStrafeTime) <= strafeInterval then
+                isStrafing = true
+                delay(strafeInterval, function()
+                    isStrafing = false
+                end)
+            end
+            lastStrafeSign = currentSign
+            lastStrafeTime = currentTime
+        end
+        
+        if isStrafing then
+            local moveDirection = Vector3.new(currentX, 0, 0)
+            if math.abs(currentX) > 0 then
+                moveDirection = moveDirection.Unit
+                local camera = workspace.CurrentCamera
+                local cameraCFrame = camera.CFrame
+                -- Преобразуем направление относительно камеры
+                moveDirection = cameraCFrame:VectorToWorldSpace(moveDirection)
+                moveDirection = Vector3.new(moveDirection.X, 0, moveDirection.Z).Unit
+
+                -- Применяем силу к RootPart
+                local velocity = rootPart.Velocity
+                local newVelocity = Vector3.new(
+                    moveDirection.X * maxAirSpeed * airStrafeMultiplier,
+                    velocity.Y, -- Сохраняем вертикальную скорость
+                    moveDirection.Z * maxAirSpeed * airStrafeMultiplier
+                )
+                
+                -- Применяем новую скорость
+                rootPart.Velocity = newVelocity
+            end
+        end
+    end
+end
+
+-- Подключаем обработчик к каждому кадру
+RunService.RenderStepped:Connect(function()
+    if character and humanoid and rootPart then
+        updateAirMovement()
+    end
+end)
+
+-- Handle character death to turn off toggles
+local function onCharacterAdded(char)
+    character = char
+    humanoid = char:WaitForChild("Humanoid")
+    rootPart = char:WaitForChild("HumanoidRootPart")
     humanoid.Died:Connect(function()
         wallhopToggle = false
-        button4.Text = "Wallhop: OFF"
+        button2.Text = "Wallhop: OFF"
+        isScriptEnabled = false
+        button6.Text = "Air Strafe: OFF"
     end)
 end
 
@@ -219,7 +288,7 @@ screenGui.Parent = playerGui
 -- Create the draggable Frame
 local frame = Instance.new("Frame")
 frame.Name = "DraggableFrame"
-frame.Size = UDim2.new(0, 200, 0, 230)  -- Initial size adjusted for 4 buttons
+frame.Size = UDim2.new(0, 200, 0, 330)  -- Initial size adjusted for 6 buttons
 frame.Position = UDim2.new(0.5, -100, 0.5, -125)  -- Center position
 frame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 frame.BorderSizePixel = 0
@@ -268,20 +337,38 @@ button1.MouseButton1Click:Connect(function()
     button1.BackgroundColor3 = isEnabled and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(0, 0, 0)
 end)
 
--- Add the second button (Jump Boost)
+-- Add the second button (Wallhop)
 local button2 = Instance.new("TextButton")
-button2.Name = "JumpButton"
+button2.Name = "WallhopButton"
 button2.Size = UDim2.new(1, 0, 0, 50)
 button2.Position = UDim2.new(0, 0, 0, 80)  -- Below the first button
 button2.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 button2.TextColor3 = Color3.fromRGB(255, 255, 255)
-button2.Text = "Jump Boost"
+button2.Text = "Wallhop: OFF"
 button2.Font = Enum.Font.SourceSansBold
 button2.TextSize = 18.5
 button2.Parent = frame
 
--- Second button click functionality (Jump Boost)
+-- Second button click functionality (Wallhop Toggle)
 button2.MouseButton1Click:Connect(function()
+    wallhopToggle = not wallhopToggle
+    button2.Text = "Wallhop: " .. (wallhopToggle and "ON" or "OFF")
+end)
+
+-- Add the third button (Jump Boost)
+local button3 = Instance.new("TextButton")
+button3.Name = "JumpButton"
+button3.Size = UDim2.new(1, 0, 0, 50)
+button3.Position = UDim2.new(0, 0, 0, 130)  -- Below the second button
+button3.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+button3.TextColor3 = Color3.fromRGB(255, 255, 255)
+button3.Text = "Jump Boost"
+button3.Font = Enum.Font.SourceSansBold
+button3.TextSize = 18.5
+button3.Parent = frame
+
+-- Third button click functionality (Jump Boost)
+button3.MouseButton1Click:Connect(function()
     local character = player.Character
     if character and character:FindFirstChild("Humanoid") then
         local humanoid = character.Humanoid
@@ -293,20 +380,20 @@ button2.MouseButton1Click:Connect(function()
     end
 end)
 
--- Add the third button (Fake Speed Glitch)
-local button3 = Instance.new("TextButton")
-button3.Name = "SpeedButton"
-button3.Size = UDim2.new(1, 0, 0, 50)
-button3.Position = UDim2.new(0, 0, 0, 130)  -- Below the second button
-button3.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-button3.TextColor3 = Color3.fromRGB(255, 255, 255)
-button3.Text = "Fake Speed Glitch"
-button3.Font = Enum.Font.SourceSansBold
-button3.TextSize = 18.5
-button3.Parent = frame
+-- Add the fourth button (Fake Speed Glitch)
+local button4 = Instance.new("TextButton")
+button4.Name = "SpeedButton"
+button4.Size = UDim2.new(1, 0, 0, 50)
+button4.Position = UDim2.new(0, 0, 0, 180)  -- Below the third button
+button4.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+button4.TextColor3 = Color3.fromRGB(255, 255, 255)
+button4.Text = "Fake Speed Glitch"
+button4.Font = Enum.Font.SourceSansBold
+button4.TextSize = 18.5
+button4.Parent = frame
 
--- Third button click functionality (Fake Speed Glitch)
-button3.MouseButton1Click:Connect(function()
+-- Fourth button click functionality (Fake Speed Glitch)
+button4.MouseButton1Click:Connect(function()
     local character = player.Character
     if character and character:FindFirstChild("Humanoid") then
         local humanoid = character.Humanoid
@@ -314,9 +401,9 @@ button3.MouseButton1Click:Connect(function()
         -- Connect to state changes for persistent effect until death
         local stateConn = humanoid.StateChanged:Connect(function(oldState, newState)
             if newState == Enum.HumanoidStateType.Freefall then
-                humanoid.WalkSpeed = 40
+                humanoid.WalkSpeed = 50
             elseif newState == Enum.HumanoidStateType.Landed then
-                humanoid.WalkSpeed = 16
+                humanoid.WalkSpeed = 17
             end
         end)
         
@@ -334,22 +421,76 @@ button3.MouseButton1Click:Connect(function()
     end
 end)
 
--- Add the fourth button (Wallhop)
-local button4 = Instance.new("TextButton")
-button4.Name = "WallhopButton"
-button4.Size = UDim2.new(1, 0, 0, 50)
-button4.Position = UDim2.new(0, 0, 0, 180)  -- Below the third button
-button4.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-button4.TextColor3 = Color3.fromRGB(255, 255, 255)
-button4.Text = "Wallhop: OFF"
-button4.Font = Enum.Font.SourceSansBold
-button4.TextSize = 18.5
-button4.Parent = frame
+-- Add the fifth button (Invis Toggle)
+local button5 = Instance.new("TextButton")
+button5.Name = "InvisButton"
+button5.Size = UDim2.new(1, 0, 0, 50)
+button5.Position = UDim2.new(0, 0, 0, 230)  -- Below the fourth button
+button5.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+button5.TextColor3 = Color3.fromRGB(255, 255, 255)
+button5.Text = "Invis: OFF"
+button5.Font = Enum.Font.SourceSansBold
+button5.TextSize = 18.5
+button5.Parent = frame
 
--- Fourth button click functionality (Wallhop Toggle)
-button4.MouseButton1Click:Connect(function()
-    wallhopToggle = not wallhopToggle
-    button4.Text = "Wallhop: " .. (wallhopToggle and "ON" or "OFF")
+-- Invisibility Script Logic
+local invis_on = false
+
+-- Fifth button click functionality (Invis Toggle)
+button5.MouseButton1Click:Connect(function()
+    invis_on = not invis_on
+    if invis_on then
+        local savedpos = game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame
+        wait()
+        game.Players.LocalPlayer.Character:MoveTo(Vector3.new(-25.95, 84, 3537.55))
+        wait(0.15)
+        local Seat = Instance.new('Seat', game.Workspace)
+        Seat.Anchored = false
+        Seat.CanCollide = false
+        Seat.Name = 'invischair'
+        Seat.Transparency = 1
+        Seat.Position = Vector3.new(-25.95, 84, 3537.55)
+        local Weld = Instance.new("Weld", Seat)
+        Weld.Part0 = Seat
+        Weld.Part1 = game.Players.LocalPlayer.Character:FindFirstChild("Torso") or game.Players.LocalPlayer.Character.UpperTorso
+        wait()
+        Seat.CFrame = savedpos
+        game.StarterGui:SetCore("SendNotification", {
+            Title = "Invis On";
+            Duration = 1;
+            Text = "";
+        })
+        button5.Text = "Invis: ON"
+    else
+        local chair = workspace:FindFirstChild('invischair')
+        if chair then
+            chair:Destroy()
+        end
+        game.StarterGui:SetCore("SendNotification", {
+            Title = "Invis Off";
+            Duration = 1;
+            Text = "";
+        })
+        button5.Text = "Invis: OFF"
+    end
+end)
+
+-- Add the sixth button (Air Strafe Toggle)
+local button6 = Instance.new("TextButton")
+button6.Name = "AirStrafeButton"
+button6.Size = UDim2.new(1, 0, 0, 50)
+button6.Position = UDim2.new(0, 0, 0, 280)  -- Below the fifth button
+button6.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+button6.TextColor3 = Color3.fromRGB(255, 255, 255)
+button6.Text = "Air Strafe: OFF"
+button6.Font = Enum.Font.SourceSansBold
+button6.TextSize = 18.5
+button6.Parent = frame
+
+-- Sixth button click functionality (Air Strafe Toggle)
+button6.MouseButton1Click:Connect(function()
+    isScriptEnabled = not isScriptEnabled
+    button6.Text = "Air Strafe: " .. (isScriptEnabled and "ON" or "OFF")
 end)
 
 -- Minimize button functionality
@@ -360,8 +501,10 @@ minimizeButton.MouseButton1Click:Connect(function()
     button2.Visible = isContentVisible
     button3.Visible = isContentVisible
     button4.Visible = isContentVisible
+    button5.Visible = isContentVisible
+    button6.Visible = isContentVisible
     if isContentVisible then
-        frame.Size = UDim2.new(0, 200, 0, 230)
+        frame.Size = UDim2.new(0, 200, 0, 330)
         minimizeButton.Text = "—"
     else
         frame.Size = UDim2.new(0, 200, 0, 30)
