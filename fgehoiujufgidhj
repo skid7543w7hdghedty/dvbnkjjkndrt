@@ -2,6 +2,8 @@ local player = game.Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
 
 -- Infinite jump variables
 local isEnabled = false
@@ -36,10 +38,6 @@ RunService.PostSimulation:Connect(function()
     end
     jumpRequestThisFrame = false
 end)
-
--- Services for Wallhop
-local Players = game:GetService("Players")
-local Workspace = game:GetService("Workspace")
 
 -- Variables for Wallhop Functionality
 local wallhopToggle = false
@@ -257,17 +255,170 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
+-- Anti-Aim Script States
+local currentMode = 0
+local running = false
+local scriptCoroutine = nil
+
+-- Anti-Aim Script Functions
+local scripts = {
+	function() -- Function 1: 0-360 degrees
+		while true do
+			task.wait(0.085)
+			if not running then return end
+			if player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") then
+				local humanoidRootPart = player.Character.HumanoidRootPart
+				local randomAngle = math.rad(math.random(0, 360))
+				humanoidRootPart.CFrame = CFrame.new(humanoidRootPart.Position) * CFrame.Angles(0, randomAngle, 0)
+			end
+		end
+	end,
+	function() -- Function 2: 0-180 degrees
+		while true do
+			task.wait(0.085)
+			if not running then return end
+			if player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") then
+				local humanoidRootPart = player.Character.HumanoidRootPart
+				local randomAngle = math.rad(math.random(0, 180))
+				humanoidRootPart.CFrame = CFrame.new(humanoidRootPart.Position) * CFrame.Angles(0, randomAngle, 0)
+			end
+		end
+	end,
+	function() -- Function 3: 0-360 degrees (random)
+		while true do
+			task.wait(0.085)
+			if not running then return end
+			if player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") then
+				local humanoidRootPart = player.Character.HumanoidRootPart
+				local randomAngle = math.rad(math.random(0, 360))
+				humanoidRootPart.CFrame = CFrame.new(humanoidRootPart.Position) * CFrame.Angles(0, randomAngle, 0)
+			end
+		end
+	end,
+	function() -- Function 4: 0-180 degrees (random)
+		while true do
+			task.wait(0.085)
+			if not running then return end
+			if player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") then
+				local humanoidRootPart = player.Character.HumanoidRootPart
+				local randomAngle = math.rad(math.random(0, 180))
+				humanoidRootPart.CFrame = CFrame.new(humanoidRootPart.Position) * CFrame.Angles(0, randomAngle, 0)
+			end
+		end
+	end
+}
+
+-- Anti-Aim Cycle Function
+local function cycleMode()
+	currentMode = (currentMode + 1) % 5
+	if currentMode == 0 then
+		running = false
+		antiAimButton.Text = "Anti-Aim: OFF"
+		antiAimButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+	else
+		running = false -- Stop previous
+		scriptCoroutine = coroutine.create(scripts[currentMode])
+		running = true
+		coroutine.resume(scriptCoroutine)
+	end
+end
+
+-- Camera rotation variables for buttons 3, 4, and 5
+local isRotate90Enabled = false
+local isRotate180Enabled = false
+local isTweenRotate180Enabled = false
+local isAlive = true -- Shared flag for player alive status
+
+-- Camera rotation functions
+local function rotateCamera90()
+    if not isAlive or not isRotate90Enabled then return end
+    local camera = Workspace.CurrentCamera
+    local defaultCFrame = camera.CFrame
+    local rotation = CFrame.Angles(0, math.rad(90), 0)
+    camera.CFrame = camera.CFrame * rotation
+    task.wait(0.11)
+    camera.CFrame = defaultCFrame
+end
+
+local function rotateCamera180()
+    if not isAlive or not isRotate180Enabled then return end
+    local camera = Workspace.CurrentCamera
+    local defaultCFrame = camera.CFrame
+    local rotation = CFrame.Angles(0, math.rad(180), 0)
+    camera.CFrame = camera.CFrame * rotation
+    task.wait(0.11)
+    camera.CFrame = defaultCFrame
+end
+
+local function tweenRotateCamera180()
+    if not isAlive or not isTweenRotate180Enabled then return end
+    local camera = Workspace.CurrentCamera
+    local defaultCFrame = camera.CFrame
+    local rotation = CFrame.Angles(0, math.rad(180), 0)
+    local rotatedCFrame = camera.CFrame * rotation
+    local tweenInfo = TweenInfo.new(0.11, Enum.EasingStyle.Linear)
+    local tweenToRotated = TweenService:Create(camera, tweenInfo, {CFrame = rotatedCFrame})
+    tweenToRotated:Play()
+    tweenToRotated.Completed:Wait()
+    local tweenBack = TweenService:Create(camera, tweenInfo, {CFrame = defaultCFrame})
+    tweenBack:Play()
+end
+
+-- Handle 'X' key press for camera rotations
+UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
+    if not isAlive or gameProcessedEvent then return end
+    if input.KeyCode == Enum.KeyCode.X then
+        if isRotate90Enabled then
+            rotateCamera90()
+        elseif isRotate180Enabled then
+            rotateCamera180()
+        elseif isTweenRotate180Enabled then
+            tweenRotateCamera180()
+        end
+    end
+end)
+
+-- Handle camera to ensure first-person compatibility
+local function updateCamera()
+    if player.Character and player.Character:FindFirstChild("Humanoid") then
+        local humanoid = player.Character.Humanoid
+        humanoid.CameraOffset = Vector3.new(0, 0, 0)
+    end
+end
+
 -- Handle character death to turn off toggles
 local function onCharacterAdded(char)
     character = char
     humanoid = char:WaitForChild("Humanoid")
     rootPart = char:WaitForChild("HumanoidRootPart")
+    updateCamera()
     humanoid.Died:Connect(function()
         wallhopToggle = false
         button2.Text = "Wallhop: OFF"
         isScriptEnabled = false
         airStrafeButton.Text = "Air Strafe: OFF"
-        strafeModeButton.Text = "Strafe Mode: OFF"
+        running = false
+        currentMode = 0
+        if antiAimButton then
+            antiAimButton.Text = "Anti-Aim: OFF"
+            antiAimButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+        end
+        isRotate90Enabled = false
+        if rotate90Button then
+            rotate90Button.Text = "90° Flick: OFF"
+            rotate90Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+        end
+        isRotate180Enabled = false
+        if rotate180Button then
+            rotate180Button.Text = "180° Flick: OFF"
+            rotate180Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+        end
+        isTweenRotate180Enabled = false
+        if tweenRotate180Button then
+            tweenRotate180Button.Text = "360° Flick: OFF"
+            tweenRotate180Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+        end
+        isAlive = false
     end)
 end
 
@@ -275,6 +426,20 @@ player.CharacterAdded:Connect(onCharacterAdded)
 if player.Character then
     onCharacterAdded(player.Character)
 end
+
+player.CharacterRemoving:Connect(function()
+    running = false
+    currentMode = 0
+    if antiAimButton then
+        antiAimButton.Text = "Anti-Aim: OFF"
+        antiAimButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    end
+    isAlive = false
+end)
+
+player.CharacterAdded:Connect(function()
+    isAlive = true
+end)
 
 -- Create the first ScreenGui (Main GUI without Air Strafe)
 local screenGui = Instance.new("ScreenGui")
@@ -459,7 +624,7 @@ button5.MouseButton1Click:Connect(function()
     end
 end)
 
--- Create the second ScreenGui (Air Strafe GUI)
+-- Create the second ScreenGui (Air Strafe and Camera Rotations GUI)
 local airStrafeGui = Instance.new("ScreenGui")
 airStrafeGui.Name = "AirStrafeGui"
 airStrafeGui.ResetOnSpawn = false
@@ -468,7 +633,7 @@ airStrafeGui.Parent = playerGui
 -- Create the draggable Frame for Air Strafe GUI
 local airStrafeFrame = Instance.new("Frame")
 airStrafeFrame.Name = "AirStrafeFrame"
-airStrafeFrame.Size = UDim2.new(0, 200, 0, 130)
+airStrafeFrame.Size = UDim2.new(0, 200, 0, 280) -- Increased height to accommodate 5 buttons
 airStrafeFrame.Position = UDim2.new(0.5, -100, 0.5, 100)
 airStrafeFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 airStrafeFrame.BorderSizePixel = 0
@@ -514,31 +679,96 @@ airStrafeButton.Parent = airStrafeFrame
 airStrafeButton.MouseButton1Click:Connect(function()
     isScriptEnabled = not isScriptEnabled
     airStrafeButton.Text = "Air Strafe: " .. (isScriptEnabled and "ON" or "OFF")
-    strafeModeButton.Text = "Strafe Mode: " .. (isScriptEnabled and "ON" or "OFF")
 end)
 
--- Add the second button in Air Strafe GUI (Strafe Mode)
-local strafeModeButton = Instance.new("TextButton")
-strafeModeButton.Name = "StrafeModeButton"
-strafeModeButton.Size = UDim2.new(1, 0, 0, 50)
-strafeModeButton.Position = UDim2.new(0, 0, 0, 80)
-strafeModeButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-strafeModeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-strafeModeButton.Text = "Strafe Mode: OFF"
-strafeModeButton.Font = Enum.Font.SourceSansBold
-strafeModeButton.TextSize = 18.5
-strafeModeButton.Parent = airStrafeFrame
+-- Add the Anti-Aim button
+local antiAimButton = Instance.new("TextButton")
+antiAimButton.Name = "AntiAimButton"
+antiAimButton.Size = UDim2.new(1, 0, 0, 50)
+antiAimButton.Position = UDim2.new(0, 0, 0, 80)
+antiAimButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+antiAimButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+antiAimButton.Text = "Anti-Aim (4 Types)"
+antiAimButton.Font = Enum.Font.SourceSansBold
+antiAimButton.TextSize = 18
+antiAimButton.Parent = airStrafeFrame
 
--- Strafe Mode button functionality
-strafeModeButton.MouseButton1Click:Connect(function()
-    isScriptEnabled = not isScriptEnabled
-    strafeModeButton.Text = "Strafe Mode: " .. (isScriptEnabled and "ON" or "OFF")
-    airStrafeButton.Text = "Air Strafe: " .. (isScriptEnabled and "ON" or "OFF")
-    game.StarterGui:SetCore("SendNotification", {
-        Title = "Strafe Mode " .. (isScriptEnabled and "Enabled" or "Disabled"),
-        Duration = 1,
-        Text = ""
-    })
+-- Connect Anti-Aim Button
+antiAimButton.MouseButton1Click:Connect(cycleMode)
+
+-- Add the third button (Rotate 90)
+local rotate90Button = Instance.new("TextButton")
+rotate90Button.Name = "Rotate90Button"
+rotate90Button.Size = UDim2.new(1, 0, 0, 50)
+rotate90Button.Position = UDim2.new(0, 0, 0, 130)
+rotate90Button.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+rotate90Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+rotate90Button.Text = "90° Flick: OFF"
+rotate90Button.Font = Enum.Font.SourceSansBold
+rotate90Button.TextSize = 18.5
+rotate90Button.Parent = airStrafeFrame
+
+-- Rotate 90 button click functionality
+rotate90Button.MouseButton1Click:Connect(function()
+    isRotate90Enabled = not isRotate90Enabled
+    isRotate180Enabled = false
+    isTweenRotate180Enabled = false
+    rotate90Button.Text = "90° Flick: " .. (isRotate90Enabled and "ON" or "OFF")
+    rotate90Button.TextColor3 = isRotate90Enabled and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(255, 255, 255)
+    rotate180Button.Text = "180° Flick: OFF"
+    rotate180Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    tweenRotate180Button.Text = "360° Flick: OFF"
+    tweenRotate180Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+end)
+
+-- Add the fourth button (Rotate 180)
+local rotate180Button = Instance.new("TextButton")
+rotate180Button.Name = "Rotate180Button"
+rotate180Button.Size = UDim2.new(1, 0, 0, 50)
+rotate180Button.Position = UDim2.new(0, 0, 0, 180)
+rotate180Button.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+rotate180Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+rotate180Button.Text = "180° Flick: OFF"
+rotate180Button.Font = Enum.Font.SourceSansBold
+rotate180Button.TextSize = 18.5
+rotate180Button.Parent = airStrafeFrame
+
+-- Rotate 180 button click functionality
+rotate180Button.MouseButton1Click:Connect(function()
+    isRotate180Enabled = not isRotate180Enabled
+    isRotate90Enabled = false
+    isTweenRotate180Enabled = false
+    rotate180Button.Text = "180° Flick: " .. (isRotate180Enabled and "ON" or "OFF")
+    rotate180Button.TextColor3 = isRotate180Enabled and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(255, 255, 255)
+    rotate90Button.Text = "90° Flick: OFF"
+    rotate90Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    tweenRotate180Button.Text = "360° Flick: OFF"
+    tweenRotate180Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+end)
+
+-- Add the fifth button (Tween Rotate 180)
+local tweenRotate180Button = Instance.new("TextButton")
+tweenRotate180Button.Name = "TweenRotate180Button"
+tweenRotate180Button.Size = UDim2.new(1, 0, 0, 50)
+tweenRotate180Button.Position = UDim2.new(0, 0, 0, 230)
+tweenRotate180Button.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+tweenRotate180Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+tweenRotate180Button.Text = "360° Flick: OFF"
+tweenRotate180Button.Font = Enum.Font.SourceSansBold
+tweenRotate180Button.TextSize = 18.5
+tweenRotate180Button.Parent = airStrafeFrame
+
+-- Tween Rotate 180 button click functionality
+tweenRotate180Button.MouseButton1Click:Connect(function()
+    isTweenRotate180Enabled = not isTweenRotate180Enabled
+    isRotate90Enabled = false
+    isRotate180Enabled = false
+    tweenRotate180Button.Text = "360° Flick: " .. (isTweenRotate180Enabled and "ON" or "OFF")
+    tweenRotate180Button.TextColor3 = isTweenRotate180Enabled and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(255, 255, 255)
+    rotate90Button.Text = "90° Flick: OFF"
+    rotate90Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    rotate180Button.Text = "180° Flick: OFF"
+    rotate180Button.TextColor3 = Color3.fromRGB(255, 255, 255)
 end)
 
 -- Create the Toggle Button ScreenGui
@@ -547,16 +777,12 @@ toggleGui.Name = "ToggleGui"
 toggleGui.ResetOnSpawn = false
 toggleGui.Parent = playerGui
 
--- Create the round toggle button
-local toggleButton = Instance.new("TextButton")
+-- Create the round toggle button (as a Frame for the background)
+local toggleButton = Instance.new("Frame")
 toggleButton.Name = "ToggleButton"
 toggleButton.Size = UDim2.new(0, 50, 0, 50)
 toggleButton.Position = UDim2.new(0.5, -25, 0.5, -25) -- Centered on screen
 toggleButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-toggleButton.Text = "ODH"
-toggleButton.Font = Enum.Font.SourceSansBold
-toggleButton.TextSize = 16
 toggleButton.Active = true
 toggleButton.Parent = toggleGui
 
@@ -565,15 +791,43 @@ local corner = Instance.new("UICorner")
 corner.CornerRadius = UDim.new(1, 0)
 corner.Parent = toggleButton
 
+-- Add white border to toggle button background
+local stroke = Instance.new("UIStroke")
+stroke.Name = "ToggleButtonStroke"
+stroke.Color = Color3.fromRGB(255, 255, 255) -- White border
+stroke.Thickness = 2
+stroke.Parent = toggleButton
+
+-- Add TextLabel for the "ODH" text
+local toggleText = Instance.new("TextLabel")
+toggleText.Name = "ToggleText"
+toggleText.Size = UDim2.new(1, 0, 1, 0)
+toggleText.Position = UDim2.new(0, 0, 0, 0)
+toggleText.BackgroundTransparency = 1
+toggleText.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleText.Text = "ODH"
+toggleText.Font = Enum.Font.SourceSansBold
+toggleText.TextSize = 16
+toggleText.Parent = toggleButton
+
 -- GUI visibility state
 local areGuisVisible = true
 
--- Toggle button functionality
-toggleButton.MouseButton1Click:Connect(function()
-    areGuisVisible = not areGuisVisible
-    screenGui.Enabled = areGuisVisible
-    airStrafeGui.Enabled = areGuisVisible
-    toggleButton.Text = areGuisVisible and "ODH" or "ODH"
+-- Toggle button click functionality with effect
+toggleButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        -- Click effect: Change background color temporarily
+        toggleButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100) -- Gray for click effect
+        task.spawn(function()
+            task.wait(0.1) -- Duration of the click effect
+            toggleButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0) -- Revert to black
+        end)
+        -- Toggle GUI visibility
+        areGuisVisible = not areGuisVisible
+        screenGui.Enabled = areGuisVisible
+        airStrafeGui.Enabled = areGuisVisible
+        toggleText.Text = areGuisVisible and "ODH" or "ODH"
+    end
 end)
 
 -- Minimize button functionality for first GUI
@@ -599,9 +853,12 @@ local isAirStrafeContentVisible = true
 airStrafeMinimizeButton.MouseButton1Click:Connect(function()
     isAirStrafeContentVisible = not isAirStrafeContentVisible
     airStrafeButton.Visible = isAirStrafeContentVisible
-    strafeModeButton.Visible = isAirStrafeContentVisible
+    antiAimButton.Visible = isAirStrafeContentVisible
+    rotate90Button.Visible = isAirStrafeContentVisible
+    rotate180Button.Visible = isAirStrafeContentVisible
+    tweenRotate180Button.Visible = isAirStrafeContentVisible
     if isAirStrafeContentVisible then
-        airStrafeFrame.Size = UDim2.new(0, 200, 0, 130)
+        airStrafeFrame.Size = UDim2.new(0, 200, 0, 280)
         airStrafeMinimizeButton.Text = "—"
     else
         airStrafeFrame.Size = UDim2.new(0, 200, 0, 30)
